@@ -241,6 +241,28 @@ export const serverStorage = {
         []
       );
     },
+    create: async (report) => {
+      return runWithFallback(
+        async (currentPrisma) => {
+          const created = await currentPrisma.dailyReport.create({
+            data: {
+              date: report.date,
+              product: report.product,
+              category: report.category,
+              buy: report.buy,
+              sell: report.sell,
+              inStock: Number(report.inStock) || 0,
+              stockSold: Number(report.stockSold) || 0,
+              profit: report.profit,
+              status: report.status,
+              addedByRole: report.addedByRole || null,
+            },
+          });
+          return mapReport(created);
+        },
+        null
+      );
+    },
   },
 
   expenses: {
@@ -374,6 +396,32 @@ export const serverStorage = {
           return mapStockControl(created);
         },
         null
+      );
+    },
+  },
+
+  settings: {
+    // Single-tenant app — one settings row for the whole business.
+    get: async () => {
+      return runWithFallback(
+        async (currentPrisma) => {
+          const existing = await currentPrisma.businessSettings.findUnique({ where: { id: 'default' } });
+          if (existing) return existing;
+          return currentPrisma.businessSettings.create({ data: { id: 'default', currency: 'NGN' } });
+        },
+        { id: 'default', currency: 'NGN' }
+      );
+    },
+    update: async (currency) => {
+      return runWithFallback(
+        async (currentPrisma) => {
+          return currentPrisma.businessSettings.upsert({
+            where: { id: 'default' },
+            update: { currency },
+            create: { id: 'default', currency },
+          });
+        },
+        { id: 'default', currency }
       );
     },
   },

@@ -13,6 +13,7 @@ export default function SignUp() {
     password: '',
   });
   const [selectedRole, setSelectedRole] = useState('owner'); // State stores 'owner' or 'sales'
+  const [currency, setCurrency] = useState('NGN');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -36,6 +37,7 @@ export default function SignUp() {
         body: JSON.stringify({
           ...formData,
           role: selectedRole, // Sends matching clean context tokens ('owner' / 'sales')
+          ...(selectedRole === 'owner' ? { currency } : {}),
         }),
       });
 
@@ -50,11 +52,12 @@ export default function SignUp() {
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
 
-      // Standardize entry points based on role profile matches
+      // Owners land on the financial dashboard; sales reps go straight to
+      // their workspace since they can't see the dashboard at all.
       if (selectedRole === 'owner') {
         router.push('/dashboard');
       } else {
-        router.push('/dashboard'); // Routes sales reps to the shared dashboard layout cleanly
+        router.push('/stock-control');
       }
     } catch (err) {
       setError('An error occurred. Please try again.');
@@ -137,6 +140,29 @@ export default function SignUp() {
               </button>
             </div>
           </div>
+
+          {selectedRole === 'owner' && (
+            <div className={styles.roleSection}>
+              <p className={styles.roleLabel}>Business currency:</p>
+              <div className={styles.roleSelector}>
+                <button
+                  type="button"
+                  className={`${styles.roleButton} ${currency === 'NGN' ? styles.active : ''}`}
+                  onClick={() => setCurrency('NGN')}
+                >
+                  ₦ Naira
+                </button>
+                <span className={styles.orLabel}>OR</span>
+                <button
+                  type="button"
+                  className={`${styles.roleButton} ${currency === 'USD' ? styles.active : ''}`}
+                  onClick={() => setCurrency('USD')}
+                >
+                  $ Dollar
+                </button>
+              </div>
+            </div>
+          )}
 
           <button
             type="submit"

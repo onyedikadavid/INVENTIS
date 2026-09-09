@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { fetchProducts, createProduct, updateProduct, deleteProduct } from '@/lib/apiClient';
+import { useCurrency } from '@/lib/useCurrency';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 // LAYOUT STYLES
@@ -103,6 +104,7 @@ export default function ProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const { symbol, format } = useCurrency();
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -171,9 +173,7 @@ export default function ProductsPage() {
 
     // Net difference per single unit item
     const netUnitResult = cleanSellPrice - cleanBuyPrice;
-    const formattedNetString = netUnitResult >= 0
-      ? `$${(netUnitResult * soldNum).toLocaleString()}`
-      : `-$${Math.abs(netUnitResult * soldNum).toLocaleString()}`;
+    const formattedNetString = format(netUnitResult * soldNum);
 
     setIsSaving(true);
     try {
@@ -181,12 +181,12 @@ export default function ProductsPage() {
         const updates = {
           name: formData.name,
           category: formData.category,
-          sellPrice: `$${cleanSellPrice.toLocaleString()}`,
+          sellPrice: `${symbol}${cleanSellPrice.toLocaleString()}`,
           inStock: stockNum,
           stockSold: soldNum,
         };
         if (!isSalesRep) {
-          updates.buyPrice = `$${cleanBuyPrice.toLocaleString()}`;
+          updates.buyPrice = `${symbol}${cleanBuyPrice.toLocaleString()}`;
           updates.profit = formattedNetString;
         }
         updates.status = computedStatus;
@@ -197,8 +197,8 @@ export default function ProductsPage() {
         const created = await createProduct({
           name: formData.name,
           category: formData.category,
-          buyPrice: `$${cleanBuyPrice.toLocaleString()}`,
-          sellPrice: `$${cleanSellPrice.toLocaleString()}`,
+          buyPrice: `${symbol}${cleanBuyPrice.toLocaleString()}`,
+          sellPrice: `${symbol}${cleanSellPrice.toLocaleString()}`,
           inStock: stockNum,
           stockSold: soldNum,
           profit: formattedNetString,
@@ -359,13 +359,13 @@ export default function ProductsPage() {
 
               {!isSalesRep && (
                 <div style={inputGroupStyle}>
-                  <label style={labelStyle}>Buying Price ($)</label>
+                  <label style={labelStyle}>Buying Price ({symbol})</label>
                   <input type="number" step="0.01" required style={inputStyle} value={formData.buyPrice} onChange={(e) => setFormData({...formData, buyPrice: e.target.value})} />
                 </div>
               )}
 
               <div style={inputGroupStyle}>
-                <label style={labelStyle}>Selling Price ($)</label>
+                <label style={labelStyle}>Selling Price ({symbol})</label>
                 <input type="number" step="0.01" required disabled={isSalesRep} style={{...inputStyle, opacity: isSalesRep ? 0.6 : 1}} value={formData.sellPrice} onChange={(e) => setFormData({...formData, sellPrice: e.target.value})} />
               </div>
 

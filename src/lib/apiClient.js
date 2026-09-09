@@ -63,3 +63,10 @@ export const createReceipt = async (payload) => (await api.post('/api/receipts',
 
 // Reports (read-only for now — nothing creates these yet)
 export const fetchReports = async () => (await api.get('/api/reports'))?.data || [];
+
+// Business settings (currency)
+export const fetchSettings = async () => (await api.get('/api/settings'))?.data;
+export const updateSettings = async (currency) => (await api.patch('/api/settings', { currency }))?.data;
+
+// Daily sales — itemized, inventory-affecting sales entry
+export const createDailySale = async (date, items) => api.post('/api/reports', { date, items });

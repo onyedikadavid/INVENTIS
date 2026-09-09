@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { findProductByName, getStockStatus, computeProfitLabel } from '@/lib/storage';
 import { fetchProducts, createProduct, updateProduct, createReceipt, api } from '@/lib/apiClient';
 import { normalizeRole } from '@/lib/roles';
+import { useCurrency } from '@/lib/useCurrency';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 const pageStyle = {
@@ -229,6 +230,7 @@ const salesRepAllowedCategories = ['Computing', 'Accessories', 'Electronics'];
 export default function EReceiptPage() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [userRole, setUserRole] = useState('owner');
+  const { symbol, currency } = useCurrency();
   const [customerName, setCustomerName] = useState('');
   const [customerWhatsApp, setCustomerWhatsApp] = useState('');
   const [items, setItems] = useState([]);
@@ -278,7 +280,7 @@ export default function EReceiptPage() {
           inStock: newInStock,
           stockSold: newStockSold,
           status: getStockStatus(newInStock),
-          profit: computeProfitLabel(existing.buyPrice, existing.sellPrice, newStockSold),
+          profit: computeProfitLabel(existing.buyPrice, existing.sellPrice, newStockSold, currency),
         });
         allProducts = allProducts.map((p) => (p.id === existing.id ? updated : p));
       } else {
@@ -287,15 +289,15 @@ export default function EReceiptPage() {
         );
         if (!shouldAdd) continue;
 
-        const sellPrice = `$${item.unitAmount.toLocaleString()}`;
+        const sellPrice = `${symbol}${item.unitAmount.toLocaleString()}`;
         const created = await createProduct({
           name: item.description,
           category: item.category,
-          buyPrice: '$0',
+          buyPrice: `${symbol}0`,
           sellPrice,
           inStock: 0, // the whole quantity was already sold in this receipt
           stockSold: item.qty,
-          profit: computeProfitLabel('$0', sellPrice, item.qty),
+          profit: computeProfitLabel(`${symbol}0`, sellPrice, item.qty, currency),
           status: getStockStatus(0),
         });
         allProducts = [...allProducts, created];
@@ -535,11 +537,11 @@ export default function EReceiptPage() {
                             {item.description}
                           </div>
                           <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-                            {item.category} • ${item.unitAmount}
+                            {item.category} • {symbol}{item.unitAmount}
                           </div>
                         </div>
                         <div style={{ color: 'var(--primary-gold)', fontSize: '13px', fontWeight: 700 }}>
-                          ${item.total.toFixed(2)}
+                          {symbol}{item.total.toFixed(2)}
                         </div>
                         <div>
                           <button style={editButtonStyle} onClick={() => startEditingItem(item)}>Edit</button>
@@ -657,7 +659,7 @@ export default function EReceiptPage() {
           {items.length > 0 && (
             <div style={totalStyle}>
               <span style={totalLabelStyle}>Receipt Total</span>
-              <span style={totalValueStyle}>${calculateTotal()}</span>
+              <span style={totalValueStyle}>{symbol}{calculateTotal()}</span>
             </div>
           )}
 

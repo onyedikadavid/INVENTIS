@@ -29,16 +29,22 @@ model Product {
 }
 
 model DailyReport {
-  id        String @id @default(uuid())
-  date      String
-  product   String
-  category  String
-  buy       String
-  sell      String
-  inStock   Int
-  stockSold Int
-  profit    String
-  status    String
+  id          String   @id @default(uuid())
+  date        String
+  product     String
+  category    String
+  buy         String
+  sell        String
+  inStock     Int
+  stockSold   Int
+  profit      String
+  status      String
+  addedByRole String?
+}
+
+model BusinessSettings {
+  id       String @id @default("default")
+  currency String @default("NGN")
 }
 
 model EReceipt {

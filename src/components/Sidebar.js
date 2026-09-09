@@ -25,10 +25,12 @@ export default function Sidebar({ userRole }) {
       <nav className={styles.nav}>
         <div className={styles.navSection}>
           <div className={styles.sectionTitle}>DASHBOARD</div>
-          <Link href="/dashboard" className={styles.navLink}>
-            <span className={styles.icon}>▦</span>
-            <span>Overview</span>
-          </Link>
+          {isOwner && (
+            <Link href="/dashboard" className={styles.navLink}>
+              <span className={styles.icon}>▦</span>
+              <span>Overview</span>
+            </Link>
+          )}
           <Link href="/products" className={styles.navLink}>
             <span className={styles.icon}>≡</span>
             <span>Products</span>

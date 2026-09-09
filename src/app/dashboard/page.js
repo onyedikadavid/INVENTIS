@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { calculateDailyMetrics } from '@/lib/storage';
+import { calculateDailyMetrics, calculateCapital } from '@/lib/storage';
 import { fetchProducts, fetchExpenses } from '@/lib/apiClient';
+import { useCurrency } from '@/lib/useCurrency';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 const dashboardStyle = {
@@ -204,7 +205,9 @@ export default function DashboardPage() {
   }, []);
 
   const isSalesRep = userRole === 'sales_rep';
-  const metrics = calculateDailyMetrics({ products, expenses });
+  const { currency } = useCurrency();
+  const metrics = calculateDailyMetrics({ products, expenses, currency });
+  const capital = calculateCapital(products, currency);
 
   const topSellingProducts = products
     .slice()
@@ -216,7 +219,7 @@ export default function DashboardPage() {
     .slice(0, 5);
 
   return (
-    <ProtectedRoute requiredRole={['owner', 'sales_rep']}>
+    <ProtectedRoute requiredRole={['owner']}>
     <div>
       <h1 style={{
         fontSize: '24px',
@@ -235,7 +238,11 @@ export default function DashboardPage() {
 
       {/* KPI Cards — owner only; sales reps aren't shown revenue/profit figures */}
       {!isSalesRep && (
-        <div style={dashboardStyle}>
+        <div style={{ ...dashboardStyle, gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+          <div style={kpiCardStyle}>
+            <div style={kpiLabelStyle}>BUSINESS CAPITAL</div>
+            <div style={kpiValueStyle}>{isLoading ? '...' : capital}</div>
+          </div>
           <div style={kpiCardStyle}>
             <div style={kpiLabelStyle}>TOTAL REVENUE</div>
             <div style={kpiValueStyle}>{isLoading ? '...' : metrics.totalRevenue}</div>

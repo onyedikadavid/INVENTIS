@@ -1,3 +1,5 @@
+import { parseCurrency, formatMoney, DEFAULT_CURRENCY } from './currency.js';
+
 const defaultUsers = [];
 const defaultProducts = [];
 const defaultReports = [];
@@ -306,6 +308,21 @@ export const storage = {
       () => browserStorage.dailyReports.getTodayReport(),
       (server) => server.dailyReports.getTodayReport()
     ),
+    create: withServerStorage(
+      (report) => browserStorage.dailyReports.create ? browserStorage.dailyReports.create(report) : report,
+      (server, report) => server.dailyReports.create(report)
+    ),
+  },
+
+  settings: {
+    get: withServerStorage(
+      () => ({ id: 'default', currency: 'NGN' }),
+      (server) => server.settings.get()
+    ),
+    update: withServerStorage(
+      (currency) => ({ id: 'default', currency }),
+      (server, currency) => server.settings.update(currency)
+    ),
   },
 
   expenses: {
@@ -359,24 +376,7 @@ export const storage = {
   },
 };
 
-const parseCurrency = (value) => {
-  const raw = String(value ?? '').replace(/[$,\s]/g, '').toLowerCase();
-  if (!raw) return 0;
-
-  const multiplierMap = { k: 1000, m: 1000000 };
-  const unit = raw.slice(-1);
-  const multiplier = multiplierMap[unit] || 1;
-  const numeric = Number.parseFloat(raw.replace(/[a-z]/gi, '')) || 0;
-
-  return numeric * multiplier;
-};
-
-const formatCurrency = (value) => {
-  const numeric = Number(value) || 0;
-  return `$${numeric.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-};
-
-export const calculateDailyMetrics = ({ products = [], expenses = [] }) => {
+export const calculateDailyMetrics = ({ products = [], expenses = [], currency = DEFAULT_CURRENCY }) => {
   const totalRevenue = products.reduce((sum, product) => {
     const soldUnits = Number(product.stockSold ?? 0) || 0;
     return sum + parseCurrency(product.sellPrice) * soldUnits;
@@ -394,11 +394,23 @@ export const calculateDailyMetrics = ({ products = [], expenses = [] }) => {
   const grossProfit = totalRevenue - totalCost - totalExpenses;
 
   return {
-    totalRevenue: formatCurrency(totalRevenue),
-    totalCost: formatCurrency(totalCost),
-    totalExpenses: formatCurrency(totalExpenses),
-    grossProfit: formatCurrency(grossProfit),
+    totalRevenue: formatMoney(totalRevenue, currency),
+    totalCost: formatMoney(totalCost, currency),
+    totalExpenses: formatMoney(totalExpenses, currency),
+    grossProfit: formatMoney(grossProfit, currency),
   };
+};
+
+// Business Capital = the cost value of everything still sitting in stock.
+// Recomputed live from current inStock, so it automatically moves whenever
+// stock is added (goes up) or sold (goes down) — nothing extra to track.
+export const calculateCapital = (products = [], currency = DEFAULT_CURRENCY) => {
+  const totalCapital = products.reduce((sum, product) => {
+    const unitsInStock = Number(product.inStock ?? 0) || 0;
+    return sum + parseCurrency(product.buyPrice) * unitsInStock;
+  }, 0);
+
+  return formatMoney(totalCapital, currency);
 };
 
 // Shared so every page that touches Product stock (Products, Stock Control,
@@ -410,12 +422,12 @@ export const getStockStatus = (inStock) => {
   return 'low';
 };
 
-export const computeProfitLabel = (buyPrice, sellPrice, stockSold) => {
+export const computeProfitLabel = (buyPrice, sellPrice, stockSold, currency = DEFAULT_CURRENCY) => {
   const buy = parseCurrency(buyPrice);
   const sell = parseCurrency(sellPrice);
   const sold = Number(stockSold) || 0;
   const net = (sell - buy) * sold;
-  return net >= 0 ? `$${net.toLocaleString()}` : `-$${Math.abs(net).toLocaleString()}`;
+  return formatMoney(net, currency);
 };
 
 // Finds a product already in stock by name (case-insensitive, trimmed) so

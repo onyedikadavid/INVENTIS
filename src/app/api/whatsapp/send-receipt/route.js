@@ -1,9 +1,11 @@
 import { getCurrentUser } from '@/lib/auth';
+import { storage } from '@/lib/storage';
+import { getCurrencySymbol } from '@/lib/currency';
 
 // Turns a receipt's items into a plain-text message.
-const buildReceiptMessage = ({ customerName, items, total }) => {
+const buildReceiptMessage = ({ customerName, items, total, symbol }) => {
   const lines = (items || []).map(
-    (item) => `- ${item.qty} x ${item.description} @ $${item.unitAmount} = $${item.total}`
+    (item) => `- ${item.qty} x ${item.description} @ ${symbol}${item.unitAmount} = ${symbol}${item.total}`
   );
 
   return [
@@ -11,7 +13,7 @@ const buildReceiptMessage = ({ customerName, items, total }) => {
     '',
     ...lines,
     '',
-    `Total: $${total}`,
+    `Total: ${symbol}${total}`,
     '',
     'Thank you for your purchase!',
   ].join('\n');
@@ -81,7 +83,10 @@ export async function POST(request) {
       return Response.json({ error: 'Invalid WhatsApp number' }, { status: 400 });
     }
 
-    const message = buildReceiptMessage({ customerName, items, total });
+    const settings = await storage.settings.get();
+    const symbol = getCurrencySymbol(settings?.currency);
+
+    const message = buildReceiptMessage({ customerName, items, total, symbol });
     const whatsappLink = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 
     const twilioResult = await trySendViaTwilio(digits, message);

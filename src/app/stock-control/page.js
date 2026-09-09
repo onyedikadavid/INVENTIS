@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { findProductByName, getStockStatus, computeProfitLabel } from '@/lib/storage';
 import { fetchProducts, createProduct, updateProduct } from '@/lib/apiClient';
 import { normalizeRole } from '@/lib/roles';
+import { useCurrency } from '@/lib/useCurrency';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 const pageStyle = {
@@ -235,6 +236,7 @@ export default function StockControlPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const { symbol, currency } = useCurrency();
   const [formData, setFormData] = useState({
     product: '',
     category: '',
@@ -307,7 +309,7 @@ export default function StockControlPage() {
         const updated = await updateProduct(existing.id, {
           inStock: newInStock,
           status: getStockStatus(newInStock),
-          profit: computeProfitLabel(existing.buyPrice, existing.sellPrice, existing.stockSold),
+          profit: computeProfitLabel(existing.buyPrice, existing.sellPrice, existing.stockSold, currency),
         });
         setProducts((prev) => prev.map((p) => (p.id === existing.id ? updated : p)));
       } else {
@@ -322,15 +324,15 @@ export default function StockControlPage() {
           return;
         }
 
-        const sellPrice = isOwner ? `$${finalUnitPrice.toLocaleString()}` : '$0';
+        const sellPrice = isOwner ? `${symbol}${finalUnitPrice.toLocaleString()}` : `${symbol}0`;
         const newProduct = await createProduct({
           name: formData.product,
           category: formData.category,
-          buyPrice: '$0',
+          buyPrice: `${symbol}0`,
           sellPrice,
           inStock: quantity,
           stockSold: 0,
-          profit: computeProfitLabel('$0', sellPrice, 0),
+          profit: computeProfitLabel(`${symbol}0`, sellPrice, 0, currency),
           status: getStockStatus(quantity),
         });
         setProducts((prev) => [...prev, newProduct]);
@@ -442,7 +444,7 @@ export default function StockControlPage() {
               {/* Financial input conditionally rendered only for owners */}
               {isOwner && (
                 <div style={formGroupStyle}>
-                  <label style={formLabelStyle}>Unit Price</label>
+                  <label style={formLabelStyle}>Unit Price ({symbol})</label>
                   <input
                     style={formInputStyle}
                     type="number"

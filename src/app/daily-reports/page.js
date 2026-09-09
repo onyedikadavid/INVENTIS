@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { calculateDailyMetrics } from '@/lib/storage';
-import { fetchReports, fetchProducts, fetchExpenses, createExpense, updateExpense, deleteExpense } from '@/lib/apiClient';
+import { fetchReports, fetchProducts, fetchExpenses, createExpense, updateExpense, deleteExpense, createDailySale } from '@/lib/apiClient';
+import { useCurrency } from '@/lib/useCurrency';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 const pageStyle = {
@@ -269,8 +270,15 @@ export default function DailyReportsPage() {
   const [isExpenseFormOpen, setIsExpenseFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const { symbol, currency } = useCurrency();
+  const isSalesRep = userRole === 'sales_rep';
 
-  const metrics = calculateDailyMetrics({ products, expenses });
+  const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10));
+  const [saleItems, setSaleItems] = useState([{ id: Date.now(), productId: '', qty: '', sellPrice: '' }]);
+  const [isSubmittingSale, setIsSubmittingSale] = useState(false);
+  const [saleError, setSaleError] = useState('');
+
+  const metrics = calculateDailyMetrics({ products, expenses, currency });
 
   useEffect(() => {
     const loadData = async () => {
@@ -380,6 +388,74 @@ export default function DailyReportsPage() {
     }
   };
 
+  const handleAddSaleRow = () => {
+    setSaleItems((prev) => [...prev, { id: Date.now(), productId: '', qty: '', sellPrice: '' }]);
+  };
+
+  const handleRemoveSaleRow = (id) => {
+    setSaleItems((prev) => (prev.length > 1 ? prev.filter((row) => row.id !== id) : prev));
+  };
+
+  const handleSaleRowChange = (id, field, value) => {
+    setSaleItems((prev) => prev.map((row) => {
+      if (row.id !== id) return row;
+      const updated = { ...row, [field]: value };
+      // Picking a product auto-fills its current selling price, but it stays editable.
+      if (field === 'productId') {
+        const product = products.find((p) => p.id === value);
+        if (product) {
+          updated.sellPrice = String(parseFloat(product.sellPrice?.replace?.(/[^0-9.-]/g, '') || 0) || '');
+        }
+      }
+      return updated;
+    }));
+  };
+
+  const calculateSaleTotal = () => {
+    return saleItems.reduce((sum, row) => {
+      const qty = Number(row.qty) || 0;
+      const price = Number(row.sellPrice) || 0;
+      return sum + qty * price;
+    }, 0);
+  };
+
+  const resetSaleForm = () => {
+    setSaleItems([{ id: Date.now(), productId: '', qty: '', sellPrice: '' }]);
+    setSaleDate(new Date().toISOString().slice(0, 10));
+  };
+
+  const handleSubmitDailySale = async (event) => {
+    event.preventDefault();
+    setSaleError('');
+
+    const validRows = saleItems.filter((row) => row.productId && Number(row.qty) > 0);
+    if (validRows.length === 0) {
+      setSaleError('Add at least one product with a quantity sold.');
+      return;
+    }
+
+    setIsSubmittingSale(true);
+    try {
+      const payload = validRows.map((row) => ({
+        productId: row.productId,
+        qty: Number(row.qty),
+        sellPrice: row.sellPrice !== '' ? Number(row.sellPrice) : undefined,
+      }));
+
+      await createDailySale(saleDate, payload);
+
+      // Both inventory and the report list changed server-side — reload both.
+      const [freshProducts, freshReports] = await Promise.all([fetchProducts(), fetchReports()]);
+      setProducts(freshProducts);
+      setReports(freshReports);
+      resetSaleForm();
+    } catch (error) {
+      setSaleError(error.message || 'Could not record the sale.');
+    } finally {
+      setIsSubmittingSale(false);
+    }
+  };
+
   return (
     <ProtectedRoute requiredRole={['owner', 'sales_rep']}>
       <div style={pageStyle}>
@@ -394,20 +470,125 @@ export default function DailyReportsPage() {
           </div>
         )}
 
-        <div style={dashboardStyle}>
-          <div style={kpiCardStyle}>
-            <div style={kpiLabelStyle}>TOTAL REVENUE</div>
-            <div style={kpiValueStyle}>{metrics.totalRevenue}</div>
+        <div style={widgetStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <div style={widgetTitleStyle}>Record Today's Sales</div>
           </div>
-          <div style={kpiCardStyle}>
-            <div style={kpiLabelStyle}>TOTAL EXPENSES</div>
-            <div style={kpiValueStyle}>{metrics.totalExpenses}</div>
-          </div>
-          <div style={kpiCardStyle}>
-            <div style={kpiLabelStyle}>NET PROFIT</div>
-            <div style={kpiValueStyle}>{metrics.grossProfit}</div>
-          </div>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+            Pick what was sold and how many — this comes straight out of stock.
+          </p>
+
+          {saleError && (
+            <div style={{ padding: '10px 14px', background: 'rgba(220,53,69,0.1)', border: '1px solid #dc3545', borderRadius: '8px', color: '#dc3545', fontSize: '13px' }}>
+              {saleError}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmitDailySale} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <label style={formFieldStyle}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Date</span>
+              <input
+                style={{ ...inputStyle, maxWidth: '220px' }}
+                type="date"
+                value={saleDate}
+                onChange={(event) => setSaleDate(event.target.value)}
+                required
+              />
+            </label>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {saleItems.map((row) => {
+                const rowTotal = (Number(row.qty) || 0) * (Number(row.sellPrice) || 0);
+                return (
+                  <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
+                    <label style={formFieldStyle}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Product</span>
+                      <select
+                        style={inputStyle}
+                        value={row.productId}
+                        onChange={(event) => handleSaleRowChange(row.id, 'productId', event.target.value)}
+                        required
+                      >
+                        <option value="">Select product</option>
+                        {products.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name} ({product.inStock} in stock)
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={formFieldStyle}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Qty Sold</span>
+                      <input
+                        style={inputStyle}
+                        type="number"
+                        min="1"
+                        value={row.qty}
+                        onChange={(event) => handleSaleRowChange(row.id, 'qty', event.target.value)}
+                        required
+                      />
+                    </label>
+                    <label style={formFieldStyle}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Sell Price ({symbol})</span>
+                      <input
+                        style={inputStyle}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.sellPrice}
+                        onChange={(event) => handleSaleRowChange(row.id, 'sellPrice', event.target.value)}
+                        required
+                      />
+                    </label>
+                    <label style={formFieldStyle}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total</span>
+                      <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: 'transparent' }}>
+                        {symbol}{rowTotal.toLocaleString()}
+                      </div>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSaleRow(row.id)}
+                      style={{ background: 'transparent', border: '1px solid #d75959', color: '#f29c9c', borderRadius: '6px', padding: '8px 10px', cursor: 'pointer', height: 'fit-content' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button type="button" onClick={handleAddSaleRow} style={{ ...actionButtonStyle, background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+                + Add Product
+              </button>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--primary-gold)' }}>
+                Total Sales: {symbol}{calculateSaleTotal().toLocaleString()}
+              </div>
+            </div>
+
+            <button type="submit" style={actionButtonStyle} disabled={isSubmittingSale}>
+              {isSubmittingSale ? 'Recording...' : 'Submit Daily Sales'}
+            </button>
+          </form>
         </div>
+
+        {!isSalesRep && (
+          <div style={dashboardStyle}>
+            <div style={kpiCardStyle}>
+              <div style={kpiLabelStyle}>TOTAL REVENUE</div>
+              <div style={kpiValueStyle}>{metrics.totalRevenue}</div>
+            </div>
+            <div style={kpiCardStyle}>
+              <div style={kpiLabelStyle}>TOTAL EXPENSES</div>
+              <div style={kpiValueStyle}>{metrics.totalExpenses}</div>
+            </div>
+            <div style={kpiCardStyle}>
+              <div style={kpiLabelStyle}>NET PROFIT</div>
+              <div style={kpiValueStyle}>{metrics.grossProfit}</div>
+            </div>
+          </div>
+        )}
 
         <div style={mainContentStyle}>
           <div style={tableContainerStyle}>
@@ -419,10 +600,10 @@ export default function DailyReportsPage() {
                 <tr>
                   <th style={tableHeadCellStyle}>Product</th>
                   <th style={tableHeadCellStyle}>Category</th>
-                  <th style={tableHeadCellStyle}>Buy</th>
+                  {!isSalesRep && <th style={tableHeadCellStyle}>Buy</th>}
                   <th style={tableHeadCellStyle}>Sell</th>
                   <th style={tableHeadCellStyle}>Stock Sold</th>
-                  <th style={tableHeadCellStyle}>Profit</th>
+                  {!isSalesRep && <th style={tableHeadCellStyle}>Profit</th>}
                   <th style={tableHeadCellStyle}>Status</th>
                   <th style={tableHeadCellStyle}>Date</th>
                 </tr>
@@ -433,17 +614,17 @@ export default function DailyReportsPage() {
                     <tr key={report.id}>
                       <td style={tableBodyCellStyle}>{report.product}</td>
                       <td style={tableBodyCellStyle}>{report.category}</td>
-                      <td style={tableBodyCellStyle}>{report.buy}</td>
+                      {!isSalesRep && <td style={tableBodyCellStyle}>{report.buy}</td>}
                       <td style={tableBodyCellStyle}>{report.sell}</td>
                       <td style={tableBodyCellStyle}>{report.stockSold}</td>
-                      <td style={tableBodyCellStyle}>{report.profit}</td>
+                      {!isSalesRep && <td style={tableBodyCellStyle}>{report.profit}</td>}
                       <td style={getStatusStyle(report.status)}>{getStatusDisplay(report.status)}</td>
                       <td style={tableBodyCellStyle}>{report.date}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="8" style={{ ...tableBodyCellStyle, textAlign: 'center' }}>
+                    <td colSpan={isSalesRep ? 6 : 8} style={{ ...tableBodyCellStyle, textAlign: 'center' }}>
                       No daily reports available
                     </td>
                   </tr>
@@ -537,7 +718,7 @@ export default function DailyReportsPage() {
                     expenses.map((expense) => (
                       <tr key={expense.id}>
                         <td style={tableBodyCellStyle}>{expense.description}</td>
-                        <td style={tableBodyCellStyle}>${Number(expense.amount || 0).toLocaleString()}</td>
+                        <td style={tableBodyCellStyle}>{symbol}{Number(expense.amount || 0).toLocaleString()}</td>
                         <td style={tableBodyCellStyle}>{expense.date}</td>
                         <td style={tableBodyCellStyle}>
                           <div style={{ display: 'flex', gap: '8px' }}>
@@ -562,22 +743,24 @@ export default function DailyReportsPage() {
               </table>
             </div>
 
-            <div style={widgetStyle}>
-              <div style={widgetTitleStyle}>Top Selling Products</div>
-              <div style={widgetListStyle}>
-                {topSellingProducts.map((product, index) => (
-                  <div key={product.id} style={widgetItemStyle}>
-                    <div>
-                      <div style={widgetItemNameStyle}>{index + 1}. {product.name}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        {product.stockSold} sold
+            {!isSalesRep && (
+              <div style={widgetStyle}>
+                <div style={widgetTitleStyle}>Top Selling Products</div>
+                <div style={widgetListStyle}>
+                  {topSellingProducts.map((product, index) => (
+                    <div key={product.id} style={widgetItemStyle}>
+                      <div>
+                        <div style={widgetItemNameStyle}>{index + 1}. {product.name}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                          {product.stockSold} sold
+                        </div>
                       </div>
+                      <div style={widgetItemValueStyle}>{product.profit}</div>
                     </div>
-                    <div style={widgetItemValueStyle}>{product.profit}</div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
