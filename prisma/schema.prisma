@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -69,11 +70,11 @@ model StockControl {
 }
 
 model Expense {
-  id           String   @id @default(uuid())
-  description  String
-  category     String
-  amount       Float
-  date         String
-  addedByRole  String?
-  createdAt    DateTime @default(now())
+  id          String   @id @default(uuid())
+  description String
+  category    String
+  amount      Float
+  date        String
+  addedByRole String?
+  createdAt   DateTime @default(now())
 }
