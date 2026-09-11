@@ -36,3 +36,15 @@ export const formatMoney = (value, currencyCode = DEFAULT_CURRENCY) => {
   const sign = numeric < 0 ? '-' : '';
   return `${sign}${symbol}${Math.abs(numeric).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 };
+
+// "Today" as the viewer's own calendar day — NOT `new Date().toISOString()`,
+// which is UTC and quietly rolls over to the wrong date for an hour or two
+// around midnight in any timezone that isn't UTC itself (e.g. Lagos, WAT,
+// is UTC+1, so from 00:00–00:59 local time, toISOString() still reports
+// yesterday's date).
+export const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};

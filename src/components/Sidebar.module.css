@@ -10,6 +10,73 @@
   left: 0;
   top: 0;
   overflow-y: auto;
+  z-index: 200;
+  transition: transform 0.25s ease;
+}
+
+.mobileMenuButton {
+  display: none;
+}
+
+.mobileCloseButton {
+  display: none;
+}
+
+.backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobileMenuButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    width: 40px;
+    height: 40px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 18px;
+    z-index: 150;
+  }
+
+  .mobileCloseButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-end;
+    width: 32px;
+    height: 32px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 190;
+  }
+
+  .sidebar {
+    width: 80vw;
+    max-width: 300px;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .sidebarOpen {
+    transform: translateX(0);
+  }
 }
 
 .logo {

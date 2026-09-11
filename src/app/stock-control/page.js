@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { findProductByName, getStockStatus, computeProfitLabel } from '@/lib/storage';
-import { fetchProducts, createProduct, updateProduct } from '@/lib/apiClient';
+import { fetchProducts, createProduct, updateProduct, deleteProduct } from '@/lib/apiClient';
 import { normalizeRole } from '@/lib/roles';
 import { useCurrency } from '@/lib/useCurrency';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -207,6 +207,11 @@ const cancelButtonStyle = {
   transition: 'all 0.3s ease',
 };
 
+const modalOverlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' };
+const modalContentStyle = { background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '28px', width: '100%', maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '90vh', overflowY: 'auto' };
+const editActionButtonStyle = { background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' };
+const deleteActionButtonStyle = { background: 'transparent', border: '1px solid #d75959', color: '#f29c9c', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' };
+
 const categories = ['All', 'Computing', 'Accessories', 'Electronics', 'Kitchen', 'Gas'];
 
 const getQuantityStatus = (quantity) => {
@@ -243,6 +248,10 @@ export default function StockControlPage() {
     quantity: '',
     unitPrice: '',
   });
+
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', category: '', buyPrice: '', sellPrice: '', inStock: '', stockSold: '' });
+  const [isEditSaving, setIsEditSaving] = useState(false);
 
   const loadProducts = async () => {
     try {
@@ -348,6 +357,71 @@ export default function StockControlPage() {
       alert(error.message || 'Could not save stock changes.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Full CRUD for the Owner: edit any field on an existing product
+  // (including cost/selling price), or remove it from stock entirely.
+  const handleOpenEdit = (product) => {
+    setEditingProduct(product);
+    setEditForm({
+      name: product.name,
+      category: product.category,
+      buyPrice: String(parseFloat(String(product.buyPrice).replace(/[^0-9.-]/g, '')) || 0),
+      sellPrice: String(parseFloat(String(product.sellPrice).replace(/[^0-9.-]/g, '')) || 0),
+      inStock: String(product.inStock ?? 0),
+      stockSold: String(product.stockSold ?? 0),
+    });
+  };
+
+  const handleCloseEdit = () => {
+    setEditingProduct(null);
+  };
+
+  const handleEditFormChange = (field, value) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveEdit = async (event) => {
+    event.preventDefault();
+    if (!editingProduct) return;
+
+    const buyPrice = parseFloat(editForm.buyPrice) || 0;
+    const sellPrice = parseFloat(editForm.sellPrice) || 0;
+    const inStock = parseInt(editForm.inStock, 10) || 0;
+    const stockSold = parseInt(editForm.stockSold, 10) || 0;
+
+    setIsEditSaving(true);
+    try {
+      const updated = await updateProduct(editingProduct.id, {
+        name: editForm.name,
+        category: editForm.category,
+        buyPrice: `${symbol}${buyPrice.toLocaleString()}`,
+        sellPrice: `${symbol}${sellPrice.toLocaleString()}`,
+        inStock,
+        stockSold,
+        status: getStockStatus(inStock),
+        profit: computeProfitLabel(`${symbol}${buyPrice}`, `${symbol}${sellPrice}`, stockSold, currency),
+      });
+      setProducts((prev) => prev.map((p) => (p.id === editingProduct.id ? updated : p)));
+      setEditingProduct(null);
+    } catch (error) {
+      alert(error.message || 'Could not save product changes.');
+    } finally {
+      setIsEditSaving(false);
+    }
+  };
+
+  const handleDeleteProduct = async (product) => {
+    if (!window.confirm(`Delete "${product.name}" from stock? This can't be undone.`)) return;
+
+    const previous = products;
+    setProducts((prev) => prev.filter((p) => p.id !== product.id)); // optimistic
+    try {
+      await deleteProduct(product.id);
+    } catch (error) {
+      setProducts(previous);
+      alert(error.message || 'Could not delete product.');
     }
   };
 
@@ -481,6 +555,7 @@ export default function StockControlPage() {
           <div style={tableHeaderStyle}>
             <div style={tableTitleStyle}>Stock Inventory</div>
           </div>
+          <div className="table-scroll">
           <table style={tableStyle}>
             <thead style={tableHeadRowStyle}>
               <tr>
@@ -490,6 +565,7 @@ export default function StockControlPage() {
                 <th style={tableHeadCellStyle}>Qty Sold</th>
                 {isOwner && <th style={tableHeadCellStyle}>Sell Price</th>}
                 <th style={tableHeadCellStyle}>Status</th>
+                {isOwner && <th style={tableHeadCellStyle}>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -504,18 +580,121 @@ export default function StockControlPage() {
                     <td style={getStatusStyle(item.status)}>
                       {item.status === 'high' ? '● High' : item.status === 'medium' ? '● Medium' : '● Low'}
                     </td>
+                    {isOwner && (
+                      <td style={tableBodyCellStyle}>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button type="button" style={editActionButtonStyle} onClick={() => handleOpenEdit(item)}>
+                            Edit
+                          </button>
+                          <button type="button" style={deleteActionButtonStyle} onClick={() => handleDeleteProduct(item)}>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={isOwner ? 6 : 5} style={{ ...tableBodyCellStyle, textAlign: 'center' }}>
+                  <td colSpan={isOwner ? 7 : 5} style={{ ...tableBodyCellStyle, textAlign: 'center' }}>
                     {isLoading ? 'Loading stock...' : 'No stock items yet — use "+ ADD STOCK" to record your first item.'}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          </div>
         </div>
+
+        {editingProduct && (
+          <div style={modalOverlayStyle} onClick={handleCloseEdit}>
+            <form style={modalContentStyle} onClick={(e) => e.stopPropagation()} onSubmit={handleSaveEdit}>
+              <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Edit Product</h3>
+
+              <div style={formGroupStyle}>
+                <label style={formLabelStyle}>Product Name</label>
+                <input
+                  style={formInputStyle}
+                  value={editForm.name}
+                  onChange={(e) => handleEditFormChange('name', e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={formLabelStyle}>Category</label>
+                <select
+                  style={formInputStyle}
+                  value={editForm.category}
+                  onChange={(e) => handleEditFormChange('category', e.target.value)}
+                >
+                  {categories.filter((c) => c !== 'All').map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={formGroupStyle}>
+                  <label style={formLabelStyle}>Cost Price ({symbol})</label>
+                  <input
+                    style={formInputStyle}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editForm.buyPrice}
+                    onChange={(e) => handleEditFormChange('buyPrice', e.target.value)}
+                    required
+                  />
+                </div>
+                <div style={formGroupStyle}>
+                  <label style={formLabelStyle}>Selling Price ({symbol})</label>
+                  <input
+                    style={formInputStyle}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editForm.sellPrice}
+                    onChange={(e) => handleEditFormChange('sellPrice', e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={formGroupStyle}>
+                  <label style={formLabelStyle}>Qty Remaining</label>
+                  <input
+                    style={formInputStyle}
+                    type="number"
+                    min="0"
+                    value={editForm.inStock}
+                    onChange={(e) => handleEditFormChange('inStock', e.target.value)}
+                    required
+                  />
+                </div>
+                <div style={formGroupStyle}>
+                  <label style={formLabelStyle}>Qty Sold (lifetime)</label>
+                  <input
+                    style={formInputStyle}
+                    type="number"
+                    min="0"
+                    value={editForm.stockSold}
+                    onChange={(e) => handleEditFormChange('stockSold', e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+                <button type="button" style={cancelButtonStyle} onClick={handleCloseEdit}>Cancel</button>
+                <button type="submit" style={submitButtonStyle} disabled={isEditSaving}>
+                  {isEditSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </ProtectedRoute>
   );

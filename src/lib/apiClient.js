@@ -61,12 +61,18 @@ export const deleteExpense = async (id) => api.delete(`/api/expenses/${id}`);
 export const fetchReceipts = async () => (await api.get('/api/receipts'))?.data || [];
 export const createReceipt = async (payload) => (await api.post('/api/receipts', payload))?.data;
 
-// Reports (read-only for now — nothing creates these yet)
+// Reports (legacy/historical, read-only — sales are no longer recorded here)
 export const fetchReports = async () => (await api.get('/api/reports'))?.data || [];
 
 // Business settings (currency)
 export const fetchSettings = async () => (await api.get('/api/settings'))?.data;
 export const updateSettings = async (currency) => (await api.patch('/api/settings', { currency }))?.data;
 
-// Daily sales — itemized, inventory-affecting sales entry
-export const createDailySale = async (date, items) => api.post('/api/reports', { date, items });
+// Daily summary — the day's sales are computed live from receipts (never
+// stored a second time here); this only carries a manual adjustment,
+// notes, and the submitted status for that date.
+export const fetchDailySummary = async (date) => {
+  const tzOffsetMinutes = new Date().getTimezoneOffset();
+  return (await api.get(`/api/reports/daily?date=${encodeURIComponent(date)}&tzOffsetMinutes=${tzOffsetMinutes}`))?.data;
+};
+export const updateDailySummary = async (date, updates) => (await api.patch('/api/reports/daily', { date, ...updates }))?.data;

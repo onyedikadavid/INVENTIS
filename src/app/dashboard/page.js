@@ -265,6 +265,7 @@ export default function DashboardPage() {
           <div style={tableHeaderStyle}>
             <div style={tableTitleStyle}>Product Performance</div>
           </div>
+          <div className="table-scroll">
           <table style={tableStyle}>
             <thead style={tableHeadRowStyle}>
               <tr>
@@ -295,6 +296,7 @@ export default function DashboardPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Top Selling Products Widget */}

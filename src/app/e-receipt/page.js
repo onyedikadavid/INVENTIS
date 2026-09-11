@@ -388,12 +388,14 @@ export default function EReceiptPage() {
       try {
         const totalAmount = calculateTotal();
 
-        await createReceipt({
+        const receipt = await createReceipt({
           customerName,
           customerPhone: customerWhatsApp,
           items,
           totalAmount,
         });
+        const transactionId = receipt?.id ? receipt.id.slice(0, 8) : null;
+        const transactionLine = transactionId ? `\nTransaction ID: ${transactionId}` : '';
 
         await syncItemsToStock(items);
 
@@ -410,14 +412,14 @@ export default function EReceiptPage() {
         }
 
         if (whatsappResult?.sent) {
-          alert('E-Receipt generated and sent to WhatsApp successfully!');
+          alert(`E-Receipt generated and sent to WhatsApp successfully!${transactionLine}`);
         } else if (whatsappResult?.whatsappLink) {
           // No WhatsApp Business API configured — open a pre-filled chat so
           // the receipt just needs one tap to send from your own WhatsApp.
           window.open(whatsappResult.whatsappLink, '_blank', 'noopener,noreferrer');
-          alert('E-Receipt generated. Opening WhatsApp so you can send it — just hit send in the chat that opened.');
+          alert(`E-Receipt generated. Opening WhatsApp so you can send it — just hit send in the chat that opened.${transactionLine}`);
         } else {
-          alert('E-Receipt generated, but WhatsApp could not be opened. You can share it manually.');
+          alert(`E-Receipt generated, but WhatsApp could not be opened. You can share it manually.${transactionLine}`);
         }
 
         setCustomerName('');

@@ -425,4 +425,60 @@ export const serverStorage = {
       );
     },
   },
+
+  // Per-date manual sales adjustment + notes + submission status. Actual
+  // sale totals for a date are NOT stored here — they're computed live from
+  // EReceipt rows so there is exactly one place a sale is ever recorded.
+  dailySummary: {
+    get: async (date) => {
+      return runWithFallback(
+        async (currentPrisma) => {
+          const existing = await currentPrisma.dailySummary.findUnique({ where: { date } });
+          return existing || { date, manualAdjustment: 0, notes: null, submitted: false, submittedByRole: null, submittedAt: null };
+        },
+        { date, manualAdjustment: 0, notes: null, submitted: false, submittedByRole: null, submittedAt: null }
+      );
+    },
+    upsert: async (date, updates) => {
+      return runWithFallback(
+        async (currentPrisma) => {
+          const data = {};
+          if (updates.manualAdjustment !== undefined) data.manualAdjustment = Number(updates.manualAdjustment) || 0;
+          if (updates.notes !== undefined) data.notes = updates.notes;
+          if (updates.submitted !== undefined) {
+            data.submitted = Boolean(updates.submitted);
+            data.submittedByRole = updates.submitted ? (updates.submittedByRole || null) : null;
+            data.submittedAt = updates.submitted ? new Date() : null;
+          }
+
+          return currentPrisma.dailySummary.upsert({
+            where: { date },
+            update: data,
+            create: { date, manualAdjustment: 0, ...data },
+          });
+        },
+        { date, manualAdjustment: Number(updates.manualAdjustment) || 0, notes: updates.notes ?? null, submitted: Boolean(updates.submitted), submittedByRole: updates.submittedByRole || null, submittedAt: updates.submitted ? new Date() : null }
+      );
+    },
+  },
+
+  // Receipts grouped by calendar date. `tzOffsetMinutes` is the browser's
+  // own offset (JS `Date.getTimezoneOffset()`, minutes WEST of UTC) so a
+  // receipt created at, say, 00:20 WAT (Lagos, UTC+1) is correctly counted
+  // under that local day instead of the previous UTC day.
+  receiptsByDate: {
+    get: async (date, tzOffsetMinutes = 0) => {
+      return runWithFallback(
+        async (currentPrisma) => {
+          const all = await currentPrisma.eReceipt.findMany({ orderBy: { createdAt: 'desc' } });
+          const matching = all.filter((row) => {
+            const localTime = new Date(row.createdAt.getTime() - tzOffsetMinutes * 60000);
+            return localTime.toISOString().slice(0, 10) === date;
+          });
+          return matching.map((row) => ({ ...row, items: row.items ? JSON.parse(row.items) : [] }));
+        },
+        []
+      );
+    },
+  },
 };

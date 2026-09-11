@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { calculateDailyMetrics } from '@/lib/storage';
-import { fetchReports, fetchProducts, fetchExpenses, createExpense, updateExpense, deleteExpense, createDailySale } from '@/lib/apiClient';
+import { fetchProducts, fetchExpenses, createExpense, updateExpense, deleteExpense, fetchDailySummary, updateDailySummary } from '@/lib/apiClient';
 import { useCurrency } from '@/lib/useCurrency';
+import { getLocalDateString } from '@/lib/currency';
 import ProtectedRoute from '@/components/ProtectedRoute';
 
 const pageStyle = {
@@ -251,12 +252,11 @@ const getStatusDisplay = (status) => {
 };
 
 const parseDate = (value) => {
-  if (!value) return new Date().toISOString().slice(0, 10);
+  if (!value) return getLocalDateString();
   return value;
 };
 
 export default function DailyReportsPage() {
-  const [reports, setReports] = useState([]);
   const [products, setProducts] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [userRole, setUserRole] = useState('owner');
@@ -265,7 +265,7 @@ export default function DailyReportsPage() {
     description: '',
     category: 'Operations',
     amount: '',
-    date: parseDate(new Date().toISOString().slice(0, 10)),
+    date: parseDate(getLocalDateString()),
   });
   const [isExpenseFormOpen, setIsExpenseFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -273,10 +273,13 @@ export default function DailyReportsPage() {
   const { symbol, currency } = useCurrency();
   const isSalesRep = userRole === 'sales_rep';
 
-  const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10));
-  const [saleItems, setSaleItems] = useState([{ id: Date.now(), productId: '', qty: '', sellPrice: '' }]);
-  const [isSubmittingSale, setIsSubmittingSale] = useState(false);
-  const [saleError, setSaleError] = useState('');
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
+  const [daySummary, setDaySummary] = useState(null);
+  const [isDayLoading, setIsDayLoading] = useState(true);
+  const [dayError, setDayError] = useState('');
+  const [manualAdjustmentInput, setManualAdjustmentInput] = useState('0');
+  const [notesInput, setNotesInput] = useState('');
+  const [isSavingDay, setIsSavingDay] = useState(false);
 
   const metrics = calculateDailyMetrics({ products, expenses, currency });
 
@@ -293,13 +296,11 @@ export default function DailyReportsPage() {
       }
 
       try {
-        const [allReports, allProducts, allExpenses] = await Promise.all([
-          fetchReports(),
+        const [allProducts, allExpenses] = await Promise.all([
           fetchProducts(),
           fetchExpenses(),
         ]);
 
-        setReports(allReports);
         setProducts(allProducts);
         setExpenses(allExpenses);
       } catch (error) {
@@ -311,6 +312,26 @@ export default function DailyReportsPage() {
 
     loadData();
   }, []);
+
+  const loadDaySummary = async (date) => {
+    setIsDayLoading(true);
+    setDayError('');
+    try {
+      const summary = await fetchDailySummary(date);
+      setDaySummary(summary);
+      setManualAdjustmentInput(String(summary.manualAdjustment ?? 0));
+      setNotesInput(summary.notes || '');
+    } catch (error) {
+      setDayError(error.message || 'Could not load that day\'s report.');
+    } finally {
+      setIsDayLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDaySummary(selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
 
   const topSellingProducts = products
     .slice()
@@ -331,7 +352,7 @@ export default function DailyReportsPage() {
       description: '',
       category: 'Operations',
       amount: '',
-      date: parseDate(new Date().toISOString().slice(0, 10)),
+      date: parseDate(getLocalDateString()),
     });
     setIsExpenseFormOpen(false);
   };
@@ -372,7 +393,7 @@ export default function DailyReportsPage() {
       description: expense.description,
       category: expense.category,
       amount: String(expense.amount ?? 0),
-      date: expense.date || parseDate(new Date().toISOString().slice(0, 10)),
+      date: expense.date || parseDate(getLocalDateString()),
     });
     setIsExpenseFormOpen(true);
   };
@@ -388,73 +409,54 @@ export default function DailyReportsPage() {
     }
   };
 
-  const handleAddSaleRow = () => {
-    setSaleItems((prev) => [...prev, { id: Date.now(), productId: '', qty: '', sellPrice: '' }]);
-  };
+  // Saves the manual adjustment + notes for the selected date. If receipts
+  // already cover that date and the person is adding/changing a nonzero
+  // manual amount, warn first — sales are recorded exactly once, at the
+  // receipt, so a manual figure on top of that is very likely a duplicate.
+  const handleSaveDaySummary = async () => {
+    const newAmount = Number(manualAdjustmentInput) || 0;
+    const hasTransactions = (daySummary?.transactionsTotal || 0) > 0;
+    const amountChanged = newAmount !== (daySummary?.manualAdjustment || 0);
 
-  const handleRemoveSaleRow = (id) => {
-    setSaleItems((prev) => (prev.length > 1 ? prev.filter((row) => row.id !== id) : prev));
-  };
-
-  const handleSaleRowChange = (id, field, value) => {
-    setSaleItems((prev) => prev.map((row) => {
-      if (row.id !== id) return row;
-      const updated = { ...row, [field]: value };
-      // Picking a product auto-fills its current selling price, but it stays editable.
-      if (field === 'productId') {
-        const product = products.find((p) => p.id === value);
-        if (product) {
-          updated.sellPrice = String(parseFloat(product.sellPrice?.replace?.(/[^0-9.-]/g, '') || 0) || '');
-        }
-      }
-      return updated;
-    }));
-  };
-
-  const calculateSaleTotal = () => {
-    return saleItems.reduce((sum, row) => {
-      const qty = Number(row.qty) || 0;
-      const price = Number(row.sellPrice) || 0;
-      return sum + qty * price;
-    }, 0);
-  };
-
-  const resetSaleForm = () => {
-    setSaleItems([{ id: Date.now(), productId: '', qty: '', sellPrice: '' }]);
-    setSaleDate(new Date().toISOString().slice(0, 10));
-  };
-
-  const handleSubmitDailySale = async (event) => {
-    event.preventDefault();
-    setSaleError('');
-
-    const validRows = saleItems.filter((row) => row.productId && Number(row.qty) > 0);
-    if (validRows.length === 0) {
-      setSaleError('Add at least one product with a quantity sold.');
-      return;
+    if (hasTransactions && amountChanged && newAmount !== 0) {
+      const confirmed = window.confirm(
+        "Sales for today already include recorded transactions. Adding this amount manually may cause duplicate sales. Do you want to continue?"
+      );
+      if (!confirmed) return;
     }
 
-    setIsSubmittingSale(true);
+    setIsSavingDay(true);
+    setDayError('');
     try {
-      const payload = validRows.map((row) => ({
-        productId: row.productId,
-        qty: Number(row.qty),
-        sellPrice: row.sellPrice !== '' ? Number(row.sellPrice) : undefined,
-      }));
-
-      await createDailySale(saleDate, payload);
-
-      // Both inventory and the report list changed server-side — reload both.
-      const [freshProducts, freshReports] = await Promise.all([fetchProducts(), fetchReports()]);
-      setProducts(freshProducts);
-      setReports(freshReports);
-      resetSaleForm();
+      const updated = await updateDailySummary(selectedDate, {
+        manualAdjustment: newAmount,
+        notes: notesInput,
+      });
+      setDaySummary(updated);
     } catch (error) {
-      setSaleError(error.message || 'Could not record the sale.');
+      setDayError(error.message || 'Could not save the report.');
     } finally {
-      setIsSubmittingSale(false);
+      setIsSavingDay(false);
     }
   };
+
+  const handleSubmitDayReport = async () => {
+    setIsSavingDay(true);
+    setDayError('');
+    try {
+      const updated = await updateDailySummary(selectedDate, {
+        manualAdjustment: Number(manualAdjustmentInput) || 0,
+        notes: notesInput,
+        submitted: true,
+      });
+      setDaySummary(updated);
+    } catch (error) {
+      setDayError(error.message || 'Could not submit the report.');
+    } finally {
+      setIsSavingDay(false);
+    }
+  };
+
 
   return (
     <ProtectedRoute requiredRole={['owner', 'sales_rep']}>
@@ -471,107 +473,134 @@ export default function DailyReportsPage() {
         )}
 
         <div style={widgetStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-            <div style={widgetTitleStyle}>Record Today's Sales</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={widgetTitleStyle}>Daily Report</div>
+            <input
+              style={{ ...inputStyle, maxWidth: '200px' }}
+              type="date"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+            />
           </div>
           <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-            Pick what was sold and how many — this comes straight out of stock.
+            Sales are recorded once, at the receipt — this page just summarizes them for the day.
           </p>
 
-          {saleError && (
+          {dayError && (
             <div style={{ padding: '10px 14px', background: 'rgba(220,53,69,0.1)', border: '1px solid #dc3545', borderRadius: '8px', color: '#dc3545', fontSize: '13px' }}>
-              {saleError}
+              {dayError}
             </div>
           )}
 
-          <form onSubmit={handleSubmitDailySale} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <label style={formFieldStyle}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Date</span>
-              <input
-                style={{ ...inputStyle, maxWidth: '220px' }}
-                type="date"
-                value={saleDate}
-                onChange={(event) => setSaleDate(event.target.value)}
-                required
-              />
-            </label>
+          {isDayLoading ? (
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Loading day report...</div>
+          ) : daySummary && (
+            <>
+              {daySummary.submitted && (
+                <div style={{ padding: '8px 12px', background: 'rgba(40,167,69,0.1)', border: '1px solid #28a745', borderRadius: '8px', color: '#3fbf60', fontSize: '12px' }}>
+                  Submitted{daySummary.submittedByRole ? ` by ${daySummary.submittedByRole}` : ''}
+                  {daySummary.submittedAt ? ` on ${new Date(daySummary.submittedAt).toLocaleString()}` : ''}
+                </div>
+              )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {saleItems.map((row) => {
-                const rowTotal = (Number(row.qty) || 0) * (Number(row.sellPrice) || 0);
-                return (
-                  <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
-                    <label style={formFieldStyle}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Product</span>
-                      <select
-                        style={inputStyle}
-                        value={row.productId}
-                        onChange={(event) => handleSaleRowChange(row.id, 'productId', event.target.value)}
-                        required
-                      >
-                        <option value="">Select product</option>
-                        {products.map((product) => (
-                          <option key={product.id} value={product.id}>
-                            {product.name} ({product.inStock} in stock)
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label style={formFieldStyle}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Qty Sold</span>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min="1"
-                        value={row.qty}
-                        onChange={(event) => handleSaleRowChange(row.id, 'qty', event.target.value)}
-                        required
-                      />
-                    </label>
-                    <label style={formFieldStyle}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Sell Price ({symbol})</span>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={row.sellPrice}
-                        onChange={(event) => handleSaleRowChange(row.id, 'sellPrice', event.target.value)}
-                        required
-                      />
-                    </label>
-                    <label style={formFieldStyle}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total</span>
-                      <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: 'transparent' }}>
-                        {symbol}{rowTotal.toLocaleString()}
-                      </div>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSaleRow(row.id)}
-                      style={{ background: 'transparent', border: '1px solid #d75959', color: '#f29c9c', borderRadius: '6px', padding: '8px 10px', cursor: 'pointer', height: 'fit-content' }}
-                    >
-                      ✕
-                    </button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+                <div style={kpiCardStyle}>
+                  <div style={kpiLabelStyle}>SALES FROM TRANSACTIONS</div>
+                  <div style={kpiValueStyle}>{daySummary.transactionsTotalFormatted}</div>
+                </div>
+                <div style={kpiCardStyle}>
+                  <div style={kpiLabelStyle}>MANUAL ADJUSTMENTS</div>
+                  <div style={kpiValueStyle}>{daySummary.manualAdjustmentFormatted}</div>
+                </div>
+                <div style={kpiCardStyle}>
+                  <div style={kpiLabelStyle}>TOTAL DAILY SALES</div>
+                  <div style={kpiValueStyle}>{daySummary.totalSalesFormatted}</div>
+                </div>
+                <div style={kpiCardStyle}>
+                  <div style={kpiLabelStyle}>EXPENSES (THIS DAY)</div>
+                  <div style={kpiValueStyle}>{daySummary.expensesTotalFormatted}</div>
+                </div>
+                {!isSalesRep && (
+                  <div style={kpiCardStyle}>
+                    <div style={kpiLabelStyle}>NET (THIS DAY)</div>
+                    <div style={kpiValueStyle}>{daySummary.netFormatted}</div>
                   </div>
-                );
-              })}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button type="button" onClick={handleAddSaleRow} style={{ ...actionButtonStyle, background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
-                + Add Product
-              </button>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--primary-gold)' }}>
-                Total Sales: {symbol}{calculateSaleTotal().toLocaleString()}
+                )}
               </div>
-            </div>
 
-            <button type="submit" style={actionButtonStyle} disabled={isSubmittingSale}>
-              {isSubmittingSale ? 'Recording...' : 'Submit Daily Sales'}
-            </button>
-          </form>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+                  Transactions ({daySummary.transactions.length})
+                </div>
+                {daySummary.transactions.length > 0 ? (
+                  <div className="table-scroll">
+                  <table style={expenseTableStyle}>
+                    <thead style={tableHeadRowStyle}>
+                      <tr>
+                        <th style={tableHeadCellStyle}>Sale ID</th>
+                        <th style={tableHeadCellStyle}>Customer</th>
+                        <th style={tableHeadCellStyle}>Items</th>
+                        <th style={tableHeadCellStyle}>Total</th>
+                        <th style={tableHeadCellStyle}>Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {daySummary.transactions.map((t) => (
+                        <tr key={t.id}>
+                          <td style={{ ...tableBodyCellStyle, fontFamily: 'monospace', fontSize: '11px' }}>{t.id.slice(0, 8)}</td>
+                          <td style={tableBodyCellStyle}>{t.customerName}</td>
+                          <td style={tableBodyCellStyle}>{t.itemCount}</td>
+                          <td style={tableBodyCellStyle}>{symbol}{t.totalAmount}</td>
+                          <td style={tableBodyCellStyle}>{new Date(t.createdAt).toLocaleTimeString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No receipts generated for this date yet.</div>
+                )}
+              </div>
+
+              <div style={formGridStyle}>
+                <label style={formFieldStyle}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Manual Adjustment ({symbol})</span>
+                  <input
+                    style={inputStyle}
+                    type="number"
+                    step="0.01"
+                    value={manualAdjustmentInput}
+                    onChange={(event) => setManualAdjustmentInput(event.target.value)}
+                  />
+                </label>
+                <label style={{ ...formFieldStyle, gridColumn: '1 / -1' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Notes</span>
+                  <textarea
+                    style={{ ...inputStyle, minHeight: '70px', resize: 'vertical' }}
+                    value={notesInput}
+                    onChange={(event) => setNotesInput(event.target.value)}
+                    placeholder="Anything worth noting about today..."
+                  />
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button type="button" style={actionButtonStyle} onClick={handleSaveDaySummary} disabled={isSavingDay}>
+                  {isSavingDay ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  style={{ ...actionButtonStyle, background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                  onClick={handleSubmitDayReport}
+                  disabled={isSavingDay}
+                >
+                  {daySummary.submitted ? 'Re-submit Report' : 'Submit Report'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
+
 
         {!isSalesRep && (
           <div style={dashboardStyle}>
@@ -590,49 +619,7 @@ export default function DailyReportsPage() {
           </div>
         )}
 
-        <div style={mainContentStyle}>
-          <div style={tableContainerStyle}>
-            <div style={tableHeaderStyle}>
-              <div style={tableTitleStyle}>Daily Metrics</div>
-            </div>
-            <table style={tableStyle}>
-              <thead style={tableHeadRowStyle}>
-                <tr>
-                  <th style={tableHeadCellStyle}>Product</th>
-                  <th style={tableHeadCellStyle}>Category</th>
-                  {!isSalesRep && <th style={tableHeadCellStyle}>Buy</th>}
-                  <th style={tableHeadCellStyle}>Sell</th>
-                  <th style={tableHeadCellStyle}>Stock Sold</th>
-                  {!isSalesRep && <th style={tableHeadCellStyle}>Profit</th>}
-                  <th style={tableHeadCellStyle}>Status</th>
-                  <th style={tableHeadCellStyle}>Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reports.length > 0 ? (
-                  reports.map((report) => (
-                    <tr key={report.id}>
-                      <td style={tableBodyCellStyle}>{report.product}</td>
-                      <td style={tableBodyCellStyle}>{report.category}</td>
-                      {!isSalesRep && <td style={tableBodyCellStyle}>{report.buy}</td>}
-                      <td style={tableBodyCellStyle}>{report.sell}</td>
-                      <td style={tableBodyCellStyle}>{report.stockSold}</td>
-                      {!isSalesRep && <td style={tableBodyCellStyle}>{report.profit}</td>}
-                      <td style={getStatusStyle(report.status)}>{getStatusDisplay(report.status)}</td>
-                      <td style={tableBodyCellStyle}>{report.date}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={isSalesRep ? 6 : 8} style={{ ...tableBodyCellStyle, textAlign: 'center' }}>
-                      No daily reports available
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={widgetStyle}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
@@ -704,6 +691,7 @@ export default function DailyReportsPage() {
                 </form>
               )}
 
+              <div className="table-scroll">
               <table style={expenseTableStyle}>
                 <thead style={tableHeadRowStyle}>
                   <tr>
@@ -741,6 +729,7 @@ export default function DailyReportsPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
 
             {!isSalesRep && (

@@ -120,3 +120,61 @@ input, textarea, select {
 .p-2 { padding: 20px; }
 .p-3 { padding: 30px; }
 
+
+/* ============================================================
+   Mobile responsiveness
+   Most of this app's layout comes from inline `style={}` objects
+   rather than CSS classes, so these rules lean on `!important` and
+   attribute selectors on purpose — that's the only way an external
+   stylesheet can override an inline style for a specific property.
+   (Per the CSS cascade, an `!important` external rule DOES win over
+   a plain inline style — inline React styles never carry !important
+   themselves.) This keeps every page responsive without having to
+   rewrite dozens of inline style objects one by one.
+   ============================================================ */
+
+@media (max-width: 768px) {
+  /* The sidebar becomes an off-canvas drawer on mobile (see
+     Sidebar.module.css), so the content area no longer needs to be
+     pushed over, and needs room at the top for the menu button. */
+  .app-main-content {
+    margin-left: 0 !important;
+    padding: 16px !important;
+    padding-top: 72px !important;
+  }
+
+  /* Any inline multi-column grid (KPI cards, form grids, modal field
+     pairs, dashboards) collapses to a single column. */
+  div[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Wide tables scroll horizontally *within their own box* instead of
+     forcing the whole page to scroll sideways or clipping content. */
+  .table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    min-width: 560px;
+  }
+
+  /* Comfortable tap targets, and 16px inputs stop iOS Safari from
+     auto-zooming in on focus. */
+  button, input, select, textarea {
+    font-size: 16px;
+  }
+
+  h1 {
+    font-size: 20px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-main-content {
+    padding: 12px !important;
+    padding-top: 68px !important;
+  }
+}

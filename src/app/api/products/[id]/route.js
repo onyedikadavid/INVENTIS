@@ -10,6 +10,17 @@ export async function PATCH(request, { params }) {
 
     const { id } = await params;
     const updates = await request.json();
+
+    // Setting the actual unit prices is the owner's call — enforced here
+    // too, not just hidden in the UI. `profit` is left alone even for a
+    // sales rep's request: it's a derived figure that legitimately changes
+    // whenever a sale or restock moves stockSold/inStock (actions sales
+    // reps are allowed to perform), not a price being set directly.
+    if (user.role !== 'owner') {
+      delete updates.buyPrice;
+      delete updates.sellPrice;
+    }
+
     const updated = await storage.products.update(id, updates);
 
     if (!updated) {

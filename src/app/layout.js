@@ -62,7 +62,7 @@ export default function RootLayout({ children }) {
           /* Operational dashboard layout frame with pinned sidebar */
           <div style={layoutStyle}>
             <Sidebar userRole={userRole} />
-            <main style={mainContentStyle}>
+            <main style={mainContentStyle} className="app-main-content">
               {children}
             </main>
           </div>

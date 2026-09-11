@@ -1,11 +1,19 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar({ userRole }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  // Close the drawer whenever the person navigates somewhere.
+  useEffect(() => {
+    setIsMobileOpen(false);
+  }, [pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -16,7 +24,29 @@ export default function Sidebar({ userRole }) {
   const isOwner = userRole === 'owner';
 
   return (
-    <div className={styles.sidebar}>
+    <>
+      <button
+        type="button"
+        className={styles.mobileMenuButton}
+        onClick={() => setIsMobileOpen(true)}
+        aria-label="Open menu"
+      >
+        ☰
+      </button>
+
+      {isMobileOpen && (
+        <div className={styles.backdrop} onClick={() => setIsMobileOpen(false)} />
+      )}
+
+      <div className={`${styles.sidebar} ${isMobileOpen ? styles.sidebarOpen : ''}`}>
+        <button
+          type="button"
+          className={styles.mobileCloseButton}
+          onClick={() => setIsMobileOpen(false)}
+          aria-label="Close menu"
+        >
+          ✕
+        </button>
       <div className={styles.logo}>
         <div className={styles.logoText}>INVENTIS</div>
         <div className={styles.logoSubtext}>INVENTORY SUITE</div>
@@ -76,6 +106,7 @@ export default function Sidebar({ userRole }) {
           Logout
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

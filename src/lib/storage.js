@@ -325,6 +325,24 @@ export const storage = {
     ),
   },
 
+  dailySummary: {
+    get: withServerStorage(
+      (date) => ({ date, manualAdjustment: 0, notes: null, submitted: false }),
+      (server, date) => server.dailySummary.get(date)
+    ),
+    upsert: withServerStorage(
+      (date, updates) => ({ date, ...updates }),
+      (server, date, updates) => server.dailySummary.upsert(date, updates)
+    ),
+  },
+
+  receiptsByDate: {
+    get: withServerStorage(
+      () => [],
+      (server, date, tzOffsetMinutes) => server.receiptsByDate.get(date, tzOffsetMinutes)
+    ),
+  },
+
   expenses: {
     getAll: withServerStorage(
       () => browserStorage.expenses.getAll(),

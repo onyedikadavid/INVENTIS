@@ -287,6 +287,7 @@ export default function ProductsPage() {
           <div style={tableHeaderStyle}>
             <div style={tableTitleStyle}>Product Inventory</div>
           </div>
+          <div className="table-scroll">
           <table style={tableStyle}>
             <thead style={tableHeadRowStyle}>
               <tr>
@@ -333,6 +334,7 @@ export default function ProductsPage() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
